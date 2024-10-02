@@ -2,6 +2,7 @@ import torch, imageio, h5py, json, typing
 import numpy as np
 import os.path as P
 from torch_dimcheck import dimchecked
+import cv2
 
 from disk import NpArray, Image, DataError
 from disk.data.tuple_dataset import TupleDataset
@@ -50,11 +51,24 @@ def _read_bitmap(bitmap_path) -> [3, 'h', 'w']:
 
     return torch.from_numpy(bitmap).permute(2, 0, 1)
 
+# @dimchecked
+# def _read_depth(depth_path) -> [1, 'h', 'w']:
+#     h5 = h5py.File(depth_path, 'r')
+#     depth = h5['depth'][:].astype(np.float32)
+#     depth[depth == 0.] = float('NaN')
+
+#     return torch.from_numpy(depth).unsqueeze(0)
+
 @dimchecked
 def _read_depth(depth_path) -> [1, 'h', 'w']:
-    h5 = h5py.File(depth_path, 'r')
-    depth = h5['depth'][:].astype(np.float32)
-    depth[depth == 0.] = float('NaN')
+    assert P.exists(depth_path), f"{depth_path} not found"
+    try:
+        depth = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
+        depth = depth.astype(np.float32) / 1000  # mm to m
+        depth[depth == 0.] = float('NaN')
+    except Exception as e:
+        print(f"!!!!Error reading depth map: {depth_path}")
+        raise e
 
     return torch.from_numpy(depth).unsqueeze(0)
 
@@ -95,8 +109,10 @@ class ImageSet:
         if self.depth_path is None:
             return None
 
-        h5_name = _base_image_name(image_name) + '.h5'
-        depth_path = P.join(self.depth_path, h5_name)
+        # h5_name = _base_image_name(image_name) + '.h5'
+        # depth_path = P.join(self.depth_path, h5_name)
+        depth_name = _base_image_name(image_name).replace("rect", "depth") + '.png'
+        depth_path = P.join(self.depth_path, depth_name)
         return _read_depth(depth_path)
 
     def _get_bitmap(self, image_name):
@@ -104,7 +120,7 @@ class ImageSet:
 
     def _get_bitmap_path(self, image_name):
         base_name = _base_image_name(image_name)
-        return P.join(self.image_path, base_name + '.jpg')
+        return P.join(self.image_path, base_name + '.png')
 
     def _get_KRT(self, image_name):
         calibration_path = P.join(self.calib_path,
